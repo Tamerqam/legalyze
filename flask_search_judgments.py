@@ -7,7 +7,8 @@ from urllib.parse import urlencode
 app = Flask(__name__)
 
 def search_judgments(keyword, law, article):
-    base_url = "https://maqam.najah.edu/search/?"
+    base_url = "https://maqam.najah.edu/search/"
+
     queries = {
         'nagog': f"{keyword} المادة {article} {law} نقض",
         'appeal': f"{keyword} المادة {article} {law} استئناف"
@@ -17,33 +18,43 @@ def search_judgments(keyword, law, article):
 
     for type_, query in queries.items():
         query_string = urlencode({'q': query})
-        search_url = base_url + query_string
+        search_url = base_url + "?" + query_string
 
-        decisions = []
         try:
             response = requests.get(search_url, timeout=10)
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
+            html = response.text
+        except Exception:
+            results[f'{type_}_decisions'] = []
+            results[f'full_search_link_{type_}'] = search_url
+            continue
 
-            # استخراج أول 3 روابط فقط من قرارات الأحكام القضائية
-            for link in soup.find_all('a', href=True):
-                href = link['href']
-                title = link.get_text(strip=True)
+        soup = BeautifulSoup(html, 'html.parser')
+        decisions = []
+        count = 0
 
-                # فلترة ذكية: فقط الروابط التي تحتوي على "/judgments/" مع عنوان نصي
-                if href.startswith("/judgments/") and title and "القضية رقم" in title:
-                    decisions.append({
-                        'title': title,
-                        'link': f"https://maqam.najah.edu{href}"
-                    })
+        # البحث الذكي عن الروابط
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            title = link.get_text(strip=True)
 
-                    if len(decisions) >= 3:
-                        break
+            if "/judgments/" in href and title:
+                decisions.append({
+                    'title': title,
+                    'link': f"https://maqam.najah.edu{href}"
+                })
+                count += 1
 
-        except Exception as e:
-            decisions = []
+            if count >= 3:
+                break
 
-        results[f'{type_}_decisions'] = decisions
+        # إذا لم يجد أي قرار بالروابط
+        if not decisions:
+            results[f'{type_}_decisions'] = []
+        else:
+            results[f'{type_}_decisions'] = decisions
+
+        # إضافة رابط البحث الكامل دائما
         results[f'full_search_link_{type_}'] = search_url
 
     return results
