@@ -1,64 +1,95 @@
 from flask import Flask, request, jsonify
-import requests
-from bs4 import BeautifulSoup
+import time
 from urllib.parse import urlencode
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
 app = Flask(__name__)
 
-def search_judgments(keyword, law, article):
+def search_judgments(materials, type_of_case=None):
     base_url = "https://maqam.najah.edu/search/"
+    results = []
 
-    queries = {
-        'nagog': f"{keyword} المادة {article} {law} نقض",
-        'appeal': f"{keyword} المادة {article} {law} استئناف"
-    }
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
 
-    results = {}
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
-    for type_, query in queries.items():
-        query_string = urlencode({'q': query})
-        search_url = base_url + '?' + query_string
+    for material in materials:
+        article = material.get('article')
+        law = material.get('law')
 
-        try:
-            response = requests.get(search_url, timeout=10)
-            response.raise_for_status()
-        except Exception as e:
-            results[f'{type_}_decisions'] = []
-            results[f'full_search_link_{type_}'] = search_url
+        if not article or not law:
             continue
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        decisions = []
-        
-        # 🧠 الحل الذكي هنا
-        list_items = soup.select('ul.list-unstyled li.py-2.border-bottom a')
+        # بناء استعلامين لكل مادة: نقض واستئناف
+        for keyword in ["نقض", "استئناف"]:
+            query = f"مادة {article} {law} {keyword}"
+            search_url = base_url + '?' + urlencode({'q': query})
 
-        for link in list_items[:3]:  # نأخذ أول 3 روابط فقط
-            href = link.get('href')
-            title = link.get_text(strip=True)
+            driver.get(search_url)
+            time.sleep(2)
 
-            if href and title:
-                decisions.append({
-                    'title': title,
-                    'link': f"https://maqam.najah.edu{href}"
-                })
+            try:
+                link_element = driver.find_element(By.XPATH, "//ul[@class='list-unstyled']//li[contains(@class, 'py-2 border-bottom')]//a")
+                title = link_element.text.strip()
+                href = link_element.get_attribute('href')
 
-        results[f'{type_}_decisions'] = decisions
-        results[f'full_search_link_{type_}'] = search_url
+                if title and href:
+                    results.append({
+                        'search_target': f"مادة {article}",
+                        'search_type': keyword,
+                        'title': title,
+                        'link': href
+                    })
 
+            except Exception as e:
+                print(f"❌ لا توجد نتائج لـ: {query}")
+
+    # إضافة بحث لنوع القضية إذا كان موجود
+    if type_of_case:
+        for keyword in ["نقض", "استئناف"]:
+            query = f"{type_of_case} {keyword}"
+            search_url = base_url + '?' + urlencode({'q': query})
+
+            driver.get(search_url)
+            time.sleep(2)
+
+            try:
+                link_element = driver.find_element(By.XPATH, "//ul[@class='list-unstyled']//li[contains(@class, 'py-2 border-bottom')]//a")
+                title = link_element.text.strip()
+                href = link_element.get_attribute('href')
+
+                if title and href:
+                    results.append({
+                        'search_target': type_of_case,
+                        'search_type': keyword,
+                        'title': title,
+                        'link': href
+                    })
+
+            except Exception as e:
+                print(f"❌ لا توجد نتائج لـ: {query}")
+
+    driver.quit()
     return results
 
-@app.route('/search', methods=['GET'])
+@app.route('/search', methods=['POST'])
 def search():
-    keyword = request.args.get('keyword', '').strip()
-    law = request.args.get('law', '').strip()
-    article = request.args.get('article', '').strip()
+    data = request.get_json()
+    materials = data.get('materials', [])
+    type_of_case = data.get('type_of_case', None)
 
-    if not keyword or not law or not article:
-        return jsonify({"error": "❌ يجب توفير كلمة مفتاحية، اسم القانون، ورقم المادة"}), 400
+    if not materials:
+        return jsonify({"error": "❌ يجب إرسال قائمة المواد"}), 400
 
-    results = search_judgments(keyword, law, article)
+    results = search_judgments(materials, type_of_case)
     return jsonify(results)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host="0.0.0.0", port=5000)
