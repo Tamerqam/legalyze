@@ -18,7 +18,8 @@ def search_judgments(materials, type_of_case=None):
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    driver = webdriver.Chrome(service=Service('/usr/local/bin/chromedriver'), options=chrome_options)
+
 
     for material in materials:
         article = material.get('article')
