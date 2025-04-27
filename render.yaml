@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: lawgic-precedent-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn flask_search_judgments:app
+    envVars:
+      - key: PORT
+        value: 5000
+    plan: free
