@@ -1,4 +1,3 @@
-# flask_search_judgments.py
 from flask import Flask, request, jsonify
 import requests
 from bs4 import BeautifulSoup
@@ -7,7 +6,7 @@ from urllib.parse import urlencode
 app = Flask(__name__)
 
 def search_judgments(keyword, law, article):
-    base_url = "https://maqam.najah.edu/search/?"
+    base_url = "https://maqam.najah.edu/search/"
 
     queries = {
         'nagog': f"{keyword} المادة {article} {law} نقض",
@@ -18,7 +17,7 @@ def search_judgments(keyword, law, article):
 
     for type_, query in queries.items():
         query_string = urlencode({'q': query})
-        search_url = base_url + query_string
+        search_url = base_url + '?' + query_string
 
         try:
             response = requests.get(search_url, timeout=10)
@@ -29,28 +28,20 @@ def search_judgments(keyword, law, article):
             continue
 
         soup = BeautifulSoup(response.text, 'html.parser')
-
         decisions = []
-        count = 0
+        
+        # 🧠 الحل الذكي هنا
+        list_items = soup.select('ul.list-unstyled li.py-2.border-bottom a')
 
-        # تحديد جميع العناصر <a> التي تحتوي على رابط لـ /judgments/
-        links = soup.select('ul.list-unstyled li.py-2.border-bottom a[href*="/judgments/"]')
-
-        for link in links:
+        for link in list_items[:3]:  # نأخذ أول 3 روابط فقط
             href = link.get('href')
-            strong_tag = link.find('strong')
-
-            title = strong_tag.get_text(strip=True) if strong_tag else link.get_text(strip=True)
+            title = link.get_text(strip=True)
 
             if href and title:
                 decisions.append({
                     'title': title,
                     'link': f"https://maqam.najah.edu{href}"
                 })
-                count += 1
-
-            if count >= 3:
-                break
 
         results[f'{type_}_decisions'] = decisions
         results[f'full_search_link_{type_}'] = search_url
