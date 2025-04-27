@@ -1,16 +1,18 @@
 # flask_search_judgments.py
-# 🔹 API كامل مبني ب Flask للباحث القضائي باستخدام البنية الدقيقة لموقع مقام
+# 🔹 سكربت الباحث القضائي المتطور عبر Selenium + Flask
 
 from flask import Flask, request, jsonify
-import requests
-from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
 from urllib.parse import urlencode
+import time
 
 app = Flask(__name__)
 
-
 def search_judgments(keyword, law, article):
-    base_url = "https://maqam.najah.edu/search/"
+    base_url = "https://maqam.najah.edu/search/?"
 
     queries = {
         'nagog': f"{keyword} المادة {article} {law} نقض",
@@ -19,46 +21,43 @@ def search_judgments(keyword, law, article):
 
     results = {}
 
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')  # بدون واجهة
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+
+    driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
+
     for type_, query in queries.items():
         query_string = urlencode({'q': query})
-        search_url = base_url + "?" + query_string
+        search_url = base_url + query_string
 
-        try:
-            response = requests.get(search_url, timeout=10)
-            response.raise_for_status()
-        except Exception:
-            results[f'{type_}_decisions'] = []
-            results[f'full_search_link_{type_}'] = search_url
-            continue
+        driver.get(search_url)
+        time.sleep(3)  # انتظار تحميل النتائج
 
-        soup = BeautifulSoup(response.text, 'html.parser')
         decisions = []
+        links = driver.find_elements(By.XPATH, "//ul[@class='list-unstyled']//li//a[contains(@href, '/judgments/')]")
+
         count = 0
+        for link in links:
+            href = link.get_attribute('href')
+            title = link.text.strip()
 
-        list_items = soup.select('ul.list-unstyled li.py-2.border-bottom')
-
-        for li in list_items:
-            a_tag = li.find('a', href=True)
-            if a_tag:
-                href = a_tag['href']
-                title_tag = a_tag.find('strong')
-                title = title_tag.get_text(strip=True) if title_tag else a_tag.get_text(strip=True)
-
-                if "/judgments/" in href and title:
-                    decisions.append({
-                        'title': title,
-                        'link': f"https://maqam.najah.edu{href}"
-                    })
-                    count += 1
-
+            if href and title:
+                decisions.append({
+                    'title': title,
+                    'link': href
+                })
+                count += 1
             if count >= 3:
                 break
 
         results[f'{type_}_decisions'] = decisions
         results[f'full_search_link_{type_}'] = search_url
 
-    return results
+    driver.quit()
 
+    return results
 
 @app.route('/search', methods=['GET'])
 def search():
@@ -67,11 +66,10 @@ def search():
     article = request.args.get('article', '').strip()
 
     if not keyword or not law or not article:
-        return jsonify({"error": "❌ يجب توفير كلمة مفتاحية، اسم القانون، ورقم المادة."}), 400
+        return jsonify({"error": "❌ يجب توفير كلمة مفتاحية، اسم القانون، ورقم المادة"}), 400
 
     results = search_judgments(keyword, law, article)
     return jsonify(results)
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
